@@ -100,7 +100,7 @@ function setMode(mode) {
   document.getElementById('btn-quiz').classList.toggle('active', mode === 'quiz');
 
   if (mode === 'study') {
-    if (currentChapter) goToChapter(currentChapter.id);
+    if (currentChapter) renderStudyScreen(currentChapter.id);
     else showHero();
   } else {
     showQuizPicker();
@@ -129,7 +129,11 @@ function goToChapter(id) {
   const ch = CHAPTERS.find(c => c.id === id);
   if (!ch) return;
   currentChapter = ch;
-  setMode('study');  // 모드 전환 없이 study 유지
+  currentMode = 'study';
+
+  // 버튼 상태 동기화
+  document.getElementById('btn-study').classList.add('active');
+  document.getElementById('btn-quiz').classList.remove('active');
 
   // 네비 활성화
   document.querySelectorAll('.nav-item').forEach(el => {
@@ -139,7 +143,25 @@ function goToChapter(id) {
     document.getElementById('sidebar').classList.remove('open');
   }
 
+  renderStudyScreen(id);
+}
+
+// goToChapter에서 분리한 화면 렌더 함수 (setMode에서 재귀 없이 호출 가능)
+function renderStudyScreen(id) {
+  const ch = CHAPTERS.find(c => c.id === id);
+  if (!ch) return;
+  currentChapter = ch;
+
+  // 네비 활성화
+  document.querySelectorAll('.nav-item').forEach(el => {
+    el.classList.toggle('active', el.dataset.id === id);
+  });
+
   showScreen('study-screen');
+  // quiz 헤더/네비 숨기기
+  document.getElementById('quiz-header').style.display = 'none';
+  document.getElementById('quiz-nav-btns').style.display = 'none';
+
   renderStudy(ch);
   document.getElementById('main').scrollTo(0, 0);
 }
@@ -207,6 +229,9 @@ function toggleDone(id, el) {
 // ══════════════════════════════════════════════════════
 function showQuizPicker() {
   showScreen('quiz-screen');
+  document.getElementById('quiz-header').style.display = 'none';
+  document.getElementById('quiz-nav-btns').style.display = 'none';
+
   const groups = [
     { id:'all',  label:'전체',        icon:'🎯', desc:`${QUIZ_DATA.length}문항` },
     { id:'A',    label:'Python/NumPy/Pandas', icon:'🧮', desc:'' },
@@ -559,7 +584,7 @@ function showResult() {
       <div class="result-btns">
         <button class="primary" onclick="startQuiz()">다시 풀기</button>
         <button onclick="showQuizPicker()">다른 퀴즈 선택</button>
-        <button onclick="currentMode='study';if(currentChapter)goToChapter(currentChapter.id);else showHero()">공부로 돌아가기</button>
+        <button onclick="if(currentChapter){currentMode='study';document.getElementById('btn-study').classList.add('active');document.getElementById('btn-quiz').classList.remove('active');renderStudyScreen(currentChapter.id);}else{currentMode='study';showHero();}">공부로 돌아가기</button>
       </div>
     </div>
   `;
