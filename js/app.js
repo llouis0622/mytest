@@ -1,612 +1,782 @@
-// ═══════════════════════════════════════════════════════
-//  app.js  ·  AI Lab 앱 로직 (라우팅 · 공부 · 퀴즈)
-// ═══════════════════════════════════════════════════════
+// ═══════════════════════════════════════════
+//  app.js  —  AI Lab (완전 재작성)
+// ═══════════════════════════════════════════
 
-// ── 상태 ──────────────────────────────────────────────
-let currentChapter = null;
-let currentMode    = 'study';   // 'study' | 'quiz'
-let quizState = {
-  questions: [],
-  current:   0,
-  answers:   {},
-  score:     0,
-  filter:    'all',
-  answered:  false,
-};
-const completed = new Set(
-  JSON.parse(localStorage.getItem('ailab-done') || '[]')
-);
+// ── 전역 상태
+var currentChapterId = null;
+var currentMode = 'study';
+var quizState = { qs:[], idx:0, answers:{}, score:0 };
+var done = new Set(JSON.parse(localStorage.getItem('ailab-v2') || '[]'));
+var pickerPart = 'all';
+var pickerType = 'all_type';
 
-// ── 초기화 ─────────────────────────────────────────────
-document.addEventListener('DOMContentLoaded', () => {
+// ── 초기화
+window.addEventListener('DOMContentLoaded', function() {
   buildNav();
-  updateProgress();
+  syncProgress();
 });
 
-// ══════════════════════════════════════════════════════
-//  NAVIGATION
-// ══════════════════════════════════════════════════════
+// ════════════════════════════════════════════
+//  NAV
+// ════════════════════════════════════════════
 function buildNav() {
-  const nav = document.getElementById('nav-list');
+  var nav = document.getElementById('nav-list');
   nav.innerHTML = '';
-
-  CHAPTER_GROUPS.forEach(g => {
-    const chapters = CHAPTERS.filter(c => c.group === g.id);
-    if (!chapters.length) return;
-
-    const lbl = document.createElement('div');
+  CHAPTER_GROUPS.forEach(function(g) {
+    var chs = CHAPTERS.filter(function(c){ return c.group === g.id; });
+    if (!chs.length) return;
+    var lbl = document.createElement('div');
     lbl.className = 'nav-group-label';
     lbl.textContent = g.label;
     nav.appendChild(lbl);
-
-    chapters.forEach(ch => {
-      const item = document.createElement('div');
-      item.className = 'nav-item' + (currentChapter?.id === ch.id ? ' active' : '');
-      item.dataset.id = ch.id;
-      const done = completed.has(ch.id);
-      item.innerHTML = `
-        <span class="ni-icon">${ch.icon}</span>
-        <span class="ni-title">${ch.title}</span>
-        ${done ? '<span class="ni-done">✓</span>' : ''}
-      `;
-      item.addEventListener('click', () => goToChapter(ch.id));
+    chs.forEach(function(ch) {
+      var item = document.createElement('div');
+      item.className = 'nav-item' + (currentChapterId === ch.id ? ' active' : '');
+      item.setAttribute('data-id', ch.id);
+      var icon = document.createElement('span');
+      icon.className = 'ni-icon';
+      icon.textContent = ch.icon;
+      var title = document.createElement('span');
+      title.className = 'ni-title';
+      title.textContent = ch.title;
+      item.appendChild(icon);
+      item.appendChild(title);
+      if (done.has(ch.id)) {
+        var tick = document.createElement('span');
+        tick.className = 'ni-done';
+        tick.textContent = '✓';
+        item.appendChild(tick);
+      }
+      item.addEventListener('click', function() { goChapter(ch.id); });
       nav.appendChild(item);
     });
   });
 }
 
 function filterNav(q) {
-  const val = q.toLowerCase().trim();
-  document.querySelectorAll('.nav-item').forEach(el => {
+  var val = q.toLowerCase().trim();
+  document.querySelectorAll('.nav-item').forEach(function(el) {
     el.style.display = (!val || el.textContent.toLowerCase().includes(val)) ? '' : 'none';
   });
-  document.querySelectorAll('.nav-group-label').forEach(el => {
+  document.querySelectorAll('.nav-group-label').forEach(function(el) {
     el.style.display = val ? 'none' : '';
   });
 }
 
-function updateProgress() {
-  const total = CHAPTERS.length;
-  const done  = CHAPTERS.filter(c => completed.has(c.id)).length;
-  const pct   = Math.round((done / total) * 100);
-  document.getElementById('prog-fill').style.width  = pct + '%';
+function syncProgress() {
+  var total = CHAPTERS.length;
+  var n = CHAPTERS.filter(function(c){ return done.has(c.id); }).length;
+  var pct = Math.round(n / total * 100);
+  document.getElementById('prog-fill').style.width = pct + '%';
   document.getElementById('prog-label').textContent = pct + '%';
 }
 
-// ── 사이드바 ─────────────────────────────────────────
+function setNavActive(id) {
+  document.querySelectorAll('.nav-item').forEach(function(el) {
+    el.classList.toggle('active', el.getAttribute('data-id') === id);
+  });
+}
+
+// ════════════════════════════════════════════
+//  SIDEBAR
+// ════════════════════════════════════════════
 function toggleSidebar() {
   document.getElementById('sidebar').classList.toggle('open');
 }
-document.addEventListener('click', e => {
-  const sb = document.getElementById('sidebar');
-  const hb = document.querySelector('.hamburger');
+document.addEventListener('click', function(e) {
+  var sb = document.getElementById('sidebar');
+  var hb = document.querySelector('.hamburger');
   if (window.innerWidth <= 768 && !sb.contains(e.target) && e.target !== hb) {
     sb.classList.remove('open');
   }
 });
 
-// ── 시작 화면 ─────────────────────────────────────────
-function startLearning() {
-  const first = CHAPTERS[0];
-  goToChapter(first.id);
+// ════════════════════════════════════════════
+//  SCREEN MANAGER
+// ════════════════════════════════════════════
+var SCREENS = ['hero-screen','study-screen','quiz-screen','result-screen'];
+function showOnly(name) {
+  SCREENS.forEach(function(id) {
+    var el = document.getElementById(id);
+    if (id === name) el.classList.remove('hidden');
+    else el.classList.add('hidden');
+  });
 }
 
-// ══════════════════════════════════════════════════════
-//  MODE SWITCH
-// ══════════════════════════════════════════════════════
+// ════════════════════════════════════════════
+//  MODE BUTTONS
+// ════════════════════════════════════════════
 function setMode(mode) {
   currentMode = mode;
   document.getElementById('btn-study').classList.toggle('active', mode === 'study');
   document.getElementById('btn-quiz').classList.toggle('active', mode === 'quiz');
-
   if (mode === 'study') {
-    if (currentChapter) renderStudyScreen(currentChapter.id);
-    else showHero();
+    if (currentChapterId) goChapter(currentChapterId);
+    else showOnly('hero-screen');
   } else {
-    showQuizPicker();
+    openQuizPicker();
   }
 }
 
-// ══════════════════════════════════════════════════════
-//  SCREENS
-// ══════════════════════════════════════════════════════
-function showScreen(name) {
-  ['hero-screen','study-screen','quiz-screen','result-screen'].forEach(id => {
-    const el = document.getElementById(id);
-    el.classList.toggle('hidden', id !== name);
-  });
-  // quiz-picker는 quiz-screen 내부에 표시
+// ════════════════════════════════════════════
+//  HERO
+// ════════════════════════════════════════════
+function startLearning() {
+  goChapter(CHAPTERS[0].id);
 }
 
-function showHero() {
-  showScreen('hero-screen');
-}
-
-// ══════════════════════════════════════════════════════
-//  STUDY MODE
-// ══════════════════════════════════════════════════════
-function goToChapter(id) {
-  const ch = CHAPTERS.find(c => c.id === id);
+// ════════════════════════════════════════════
+//  STUDY
+// ════════════════════════════════════════════
+function goChapter(id) {
+  var ch = CHAPTERS.find(function(c){ return c.id === id; });
   if (!ch) return;
-  currentChapter = ch;
+  currentChapterId = id;
   currentMode = 'study';
-
-  // 버튼 상태 동기화
   document.getElementById('btn-study').classList.add('active');
   document.getElementById('btn-quiz').classList.remove('active');
-
-  // 네비 활성화
-  document.querySelectorAll('.nav-item').forEach(el => {
-    el.classList.toggle('active', el.dataset.id === id);
-  });
-  if (window.innerWidth <= 768) {
-    document.getElementById('sidebar').classList.remove('open');
-  }
-
-  renderStudyScreen(id);
-}
-
-// goToChapter에서 분리한 화면 렌더 함수 (setMode에서 재귀 없이 호출 가능)
-function renderStudyScreen(id) {
-  const ch = CHAPTERS.find(c => c.id === id);
-  if (!ch) return;
-  currentChapter = ch;
-
-  // 네비 활성화
-  document.querySelectorAll('.nav-item').forEach(el => {
-    el.classList.toggle('active', el.dataset.id === id);
-  });
-
-  showScreen('study-screen');
-  // quiz 헤더/네비 숨기기
+  setNavActive(id);
+  if (window.innerWidth <= 768) document.getElementById('sidebar').classList.remove('open');
+  showOnly('study-screen');
   document.getElementById('quiz-header').style.display = 'none';
   document.getElementById('quiz-nav-btns').style.display = 'none';
-
   renderStudy(ch);
   document.getElementById('main').scrollTo(0, 0);
 }
 
 function renderStudy(ch) {
-  const chIdx = CHAPTERS.findIndex(c => c.id === ch.id);
-  const prev  = CHAPTERS[chIdx - 1];
-  const next  = CHAPTERS[chIdx + 1];
-  const isDone = completed.has(ch.id);
-  const relatedQ = QUIZ_DATA.filter(q =>
-    q.part === ch.group || q.chapter === ch.title
-  ).length;
+  var chIdx = CHAPTERS.findIndex(function(c){ return c.id === ch.id; });
+  var prev = CHAPTERS[chIdx - 1];
+  var next = CHAPTERS[chIdx + 1];
+  var isDone = done.has(ch.id);
+  var container = document.getElementById('study-content');
+  container.innerHTML = '';
 
-  document.getElementById('study-content').innerHTML = `
-    <div class="chapter-header page-enter">
-      <div class="ch-tag">${ch.group}파트 · ${ch.icon}</div>
-      <h2 class="ch-title">${ch.title}</h2>
-      <p class="ch-desc">${ch.desc}</p>
-      ${relatedQ > 0 ? `<div style="margin-top:10px;font-size:12px;color:var(--text-dim);font-family:var(--font-mono)">관련 퀴즈 ${relatedQ}문항</div>` : ''}
-    </div>
+  // 헤더
+  var header = document.createElement('div');
+  header.className = 'chapter-header page-enter';
+  var tag = document.createElement('div');
+  tag.className = 'ch-tag';
+  tag.textContent = ch.group + '파트 · ' + ch.icon;
+  var h2 = document.createElement('h2');
+  h2.className = 'ch-title';
+  h2.textContent = ch.title;
+  var desc = document.createElement('p');
+  desc.className = 'ch-desc';
+  desc.textContent = ch.desc;
+  header.appendChild(tag);
+  header.appendChild(h2);
+  header.appendChild(desc);
+  container.appendChild(header);
 
-    ${ch.html}
+  // 본문 (챕터 HTML 직접 삽입)
+  var body = document.createElement('div');
+  body.className = 'study-body';
+  body.innerHTML = ch.html;
+  container.appendChild(body);
 
-    <div class="ch-done-btn ${isDone ? 'done' : ''}" onclick="toggleDone('${ch.id}',this)">
-      <input type="checkbox" id="done-cb-${ch.id}" ${isDone ? 'checked' : ''} onchange="toggleDone('${ch.id}',this.closest('.ch-done-btn'))">
-      <label for="done-cb-${ch.id}">${isDone ? '✅ 학습 완료!' : '이 챕터를 완료로 표시하기'}</label>
-    </div>
-
-    <div class="ch-nav">
-      ${prev ? `<button class="ch-nav-btn" onclick="goToChapter('${prev.id}')">
-        ← <div><span class="cnb-sub">이전</span><span class="cnb-title">${prev.icon} ${prev.title}</span></div>
-      </button>` : '<div></div>'}
-      ${next ? `<button class="ch-nav-btn right" onclick="goToChapter('${next.id}')">
-        <div style="text-align:right"><span class="cnb-sub">다음</span><span class="cnb-title">${next.icon} ${next.title}</span></div> →
-      </button>` : '<div></div>'}
-    </div>
-  `;
-
-  // code-copy 이벤트
-  document.querySelectorAll('.code-copy').forEach(btn => {
-    btn.onclick = () => copyCode(btn);
+  // code-copy 재바인딩
+  body.querySelectorAll('.code-copy').forEach(function(btn) {
+    btn.onclick = function() { copyCode(btn); };
   });
+
+  // 완료 버튼
+  var doneBtn = document.createElement('div');
+  doneBtn.className = 'ch-done-btn' + (isDone ? ' done' : '');
+  var cb = document.createElement('input');
+  cb.type = 'checkbox';
+  cb.checked = isDone;
+  var lbl = document.createElement('label');
+  lbl.textContent = isDone ? '완료! 다음 챕터로 이동하세요' : '이 챕터를 완료로 표시하기';
+  doneBtn.appendChild(cb);
+  doneBtn.appendChild(lbl);
+  doneBtn.addEventListener('click', function(e) {
+    if (e.target === cb) return; // checkbox 자체 클릭은 아래서 처리
+    toggleDone(ch.id, doneBtn, lbl, cb);
+  });
+  cb.addEventListener('change', function() {
+    toggleDone(ch.id, doneBtn, lbl, cb);
+  });
+  container.appendChild(doneBtn);
+
+  // 이전/다음 네비
+  var nav = document.createElement('div');
+  nav.className = 'ch-nav';
+  if (prev) {
+    var prevBtn = document.createElement('button');
+    prevBtn.className = 'ch-nav-btn';
+    var pDiv = document.createElement('div');
+    var pSub = document.createElement('span');
+    pSub.className = 'cnb-sub';
+    pSub.textContent = '이전';
+    var pTitle = document.createElement('span');
+    pTitle.className = 'cnb-title';
+    pTitle.textContent = prev.icon + ' ' + prev.title;
+    pDiv.appendChild(pSub);
+    pDiv.appendChild(pTitle);
+    prevBtn.appendChild(document.createTextNode('← '));
+    prevBtn.appendChild(pDiv);
+    prevBtn.addEventListener('click', function() { goChapter(prev.id); });
+    nav.appendChild(prevBtn);
+  } else {
+    nav.appendChild(document.createElement('div'));
+  }
+  if (next) {
+    var nextBtn = document.createElement('button');
+    nextBtn.className = 'ch-nav-btn right';
+    var nDiv = document.createElement('div');
+    nDiv.style.textAlign = 'right';
+    var nSub = document.createElement('span');
+    nSub.className = 'cnb-sub';
+    nSub.textContent = '다음';
+    var nTitle = document.createElement('span');
+    nTitle.className = 'cnb-title';
+    nTitle.textContent = next.icon + ' ' + next.title;
+    nDiv.appendChild(nSub);
+    nDiv.appendChild(nTitle);
+    nextBtn.appendChild(nDiv);
+    nextBtn.appendChild(document.createTextNode(' →'));
+    nextBtn.addEventListener('click', function() { goChapter(next.id); });
+    nav.appendChild(nextBtn);
+  } else {
+    nav.appendChild(document.createElement('div'));
+  }
+  container.appendChild(nav);
 }
 
-function toggleDone(id, el) {
-  const cb = el.querySelector('input[type=checkbox]') || document.getElementById('done-cb-' + id);
-  if (completed.has(id)) {
-    completed.delete(id);
-    if (cb) cb.checked = false;
-    el.classList.remove('done');
-    el.querySelector('label').textContent = '이 챕터를 완료로 표시하기';
+function toggleDone(id, btn, lbl, cb) {
+  if (done.has(id)) {
+    done.delete(id);
+    cb.checked = false;
+    btn.classList.remove('done');
+    lbl.textContent = '이 챕터를 완료로 표시하기';
   } else {
-    completed.add(id);
-    if (cb) cb.checked = true;
-    el.classList.add('done');
-    el.querySelector('label').textContent = '✅ 학습 완료!';
+    done.add(id);
+    cb.checked = true;
+    btn.classList.add('done');
+    lbl.textContent = '완료! 다음 챕터로 이동하세요';
   }
-  localStorage.setItem('ailab-done', JSON.stringify([...completed]));
-  updateProgress();
+  localStorage.setItem('ailab-v2', JSON.stringify(Array.from(done)));
+  syncProgress();
   buildNav();
 }
 
-// ══════════════════════════════════════════════════════
+// ════════════════════════════════════════════
 //  QUIZ PICKER
-// ══════════════════════════════════════════════════════
-function showQuizPicker() {
-  showScreen('quiz-screen');
+// ════════════════════════════════════════════
+function openQuizPicker() {
+  showOnly('quiz-screen');
   document.getElementById('quiz-header').style.display = 'none';
   document.getElementById('quiz-nav-btns').style.display = 'none';
 
-  const groups = [
-    { id:'all',  label:'전체',        icon:'🎯', desc:`${QUIZ_DATA.length}문항` },
-    { id:'A',    label:'Python/NumPy/Pandas', icon:'🧮', desc:'' },
-    { id:'B',    label:'AI 수학',     icon:'📐', desc:'' },
-    { id:'C',    label:'ML 기초',     icon:'🧠', desc:'' },
-    { id:'D',    label:'딥러닝',      icon:'🔥', desc:'' },
-    { id:'F',    label:'Transformer', icon:'⚡', desc:'' },
-    { id:'G',    label:'LLM',         icon:'🤖', desc:'' },
-    { id:'H',    label:'RAG',         icon:'🔍', desc:'' },
-    { id:'I',    label:'에이전틱 AI', icon:'🚀', desc:'' },
+  var parts = [
+    { id:'all', label:'전체',               icon:'🎯' },
+    { id:'A',   label:'Python / NumPy',      icon:'🧮' },
+    { id:'B',   label:'AI 수학',             icon:'📐' },
+    { id:'C',   label:'ML 기초',             icon:'🧠' },
+    { id:'D',   label:'딥러닝',              icon:'🔥' },
+    { id:'F',   label:'Transformer',         icon:'⚡' },
+    { id:'G',   label:'LLM',                icon:'🤖' },
+    { id:'H',   label:'RAG',                icon:'🔍' },
+    { id:'I',   label:'에이전틱 AI',         icon:'🚀' },
   ];
-  groups.forEach(g => {
-    if (g.id !== 'all') {
-      const cnt = QUIZ_DATA.filter(q => q.part === g.id).length;
-      g.desc = `${cnt}문항`;
-    }
+  var types = [
+    { id:'all_type', label:'전체 유형',  icon:'📋' },
+    { id:'mcq',      label:'선택형',    icon:'🔘' },
+    { id:'short',    label:'단답형',    icon:'✏️' },
+    { id:'code',     label:'코드 작성', icon:'💻' },
+    { id:'output',   label:'결과 예측', icon:'📤' },
+  ];
+
+  var qc = document.getElementById('quiz-content');
+  qc.innerHTML = '';
+  var wrap = document.createElement('div');
+  wrap.id = 'quiz-picker';
+  wrap.className = 'page-enter';
+
+  var h = document.createElement('div');
+  h.className = 'qp-title';
+  h.textContent = '📝 퀴즈 선택';
+  wrap.appendChild(h);
+
+  var p = document.createElement('p');
+  p.className = 'qp-desc';
+  p.textContent = '파트와 유형을 선택하고 퀴즈를 시작하세요.';
+  wrap.appendChild(p);
+
+  // 파트 그리드
+  var pl = document.createElement('div');
+  pl.style.cssText = 'font-family:var(--font-mono);font-size:11px;color:var(--text-dim);margin-bottom:10px';
+  pl.textContent = '파트 선택';
+  wrap.appendChild(pl);
+
+  var pgrid = document.createElement('div');
+  pgrid.className = 'qp-grid';
+
+  var preview = document.createElement('span');
+
+  parts.forEach(function(pt) {
+    var cnt = pt.id === 'all'
+      ? QUIZ_DATA.length
+      : QUIZ_DATA.filter(function(q){ return q.part === pt.id; }).length;
+    var card = document.createElement('div');
+    card.className = 'qp-card' + (pt.id === pickerPart ? ' selected' : '');
+    var iconEl = document.createElement('div');
+    iconEl.className = 'qp-icon';
+    iconEl.textContent = pt.icon;
+    var nameEl = document.createElement('div');
+    nameEl.className = 'qp-name';
+    nameEl.textContent = pt.label;
+    var cntEl = document.createElement('div');
+    cntEl.className = 'qp-count';
+    cntEl.textContent = cnt + '문항';
+    card.appendChild(iconEl);
+    card.appendChild(nameEl);
+    card.appendChild(cntEl);
+    card.addEventListener('click', function() {
+      pgrid.querySelectorAll('.qp-card').forEach(function(c){ c.classList.remove('selected'); });
+      card.classList.add('selected');
+      pickerPart = pt.id;
+      updateCountPreview(preview);
+    });
+    pgrid.appendChild(card);
   });
+  wrap.appendChild(pgrid);
 
-  const typeGroups = [
-    { id:'all_type', label:'전체 유형', icon:'📋' },
-    { id:'mcq',   label:'선택형',   icon:'🔘' },
-    { id:'short', label:'단답형',   icon:'✏️' },
-    { id:'code',  label:'코드 작성', icon:'💻' },
-    { id:'output',label:'결과 예측', icon:'📤' },
-  ];
+  // 유형 칩
+  var tl = document.createElement('div');
+  tl.style.cssText = 'font-family:var(--font-mono);font-size:11px;color:var(--text-dim);margin:20px 0 10px';
+  tl.textContent = '유형 선택';
+  wrap.appendChild(tl);
 
-  document.getElementById('quiz-content').innerHTML = `
-    <div id="quiz-picker" class="page-enter">
-      <div class="qp-title">📝 퀴즈 선택</div>
-      <p class="qp-desc">파트와 유형을 선택하고 퀴즈를 시작하세요.</p>
+  var tgrid = document.createElement('div');
+  tgrid.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;margin-bottom:28px';
+  types.forEach(function(tp) {
+    var chip = document.createElement('div');
+    chip.className = 'filter-chip' + (tp.id === pickerType ? ' active' : '');
+    chip.textContent = tp.icon + ' ' + tp.label;
+    chip.addEventListener('click', function() {
+      tgrid.querySelectorAll('.filter-chip').forEach(function(c){ c.classList.remove('active'); });
+      chip.classList.add('active');
+      pickerType = tp.id;
+      updateCountPreview(preview);
+    });
+    tgrid.appendChild(chip);
+  });
+  wrap.appendChild(tgrid);
 
-      <div style="font-family:var(--font-mono);font-size:11px;color:var(--text-dim);margin-bottom:10px">파트 선택</div>
-      <div class="qp-grid" id="part-grid">
-        ${groups.map(g => `
-          <div class="qp-card ${g.id==='all'?'selected':''}" data-part="${g.id}" onclick="selectPart(this,'${g.id}')">
-            <div class="qp-icon">${g.icon}</div>
-            <div class="qp-name">${g.label}</div>
-            <div class="qp-count">${g.desc}</div>
-          </div>
-        `).join('')}
-      </div>
+  // 시작 버튼
+  var startBtn = document.createElement('button');
+  startBtn.className = 'start-quiz-btn';
+  startBtn.textContent = '퀴즈 시작 →';
+  startBtn.addEventListener('click', startQuiz);
+  wrap.appendChild(startBtn);
 
-      <div style="font-family:var(--font-mono);font-size:11px;color:var(--text-dim);margin:20px 0 10px">유형 선택</div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:28px" id="type-grid">
-        ${typeGroups.map(t => `
-          <div class="filter-chip ${t.id==='all_type'?'active':''}" data-type="${t.id}" onclick="selectType(this,'${t.id}')">
-            ${t.icon} ${t.label}
-          </div>
-        `).join('')}
-      </div>
+  // 문항 수 미리보기
+  preview.style.cssText = 'margin-left:16px;font-family:var(--font-mono);font-size:12px;color:var(--text-muted)';
+  updateCountPreview(preview);
+  wrap.appendChild(preview);
 
-      <button class="start-quiz-btn" onclick="startQuiz()">퀴즈 시작 →</button>
-      <span id="quiz-count-preview" style="margin-left:16px;font-family:var(--font-mono);font-size:12px;color:var(--text-muted)"></span>
-    </div>
-  `;
-  document.getElementById('quiz-header').style.display = 'none';
-  document.getElementById('quiz-nav-btns').style.display = 'none';
-  updatePickerCount();
+  qc.appendChild(wrap);
 }
 
-let pickerPart = 'all';
-let pickerType = 'all_type';
-
-function selectPart(el, val) {
-  document.querySelectorAll('#part-grid .qp-card').forEach(c => c.classList.remove('selected'));
-  el.classList.add('selected');
-  pickerPart = val;
-  updatePickerCount();
+function updateCountPreview(el) {
+  el.textContent = filterQuizList().length + '문항';
 }
 
-function selectType(el, val) {
-  document.querySelectorAll('#type-grid .filter-chip').forEach(c => c.classList.remove('active'));
-  el.classList.add('active');
-  pickerType = val;
-  updatePickerCount();
+function filterQuizList() {
+  var qs = QUIZ_DATA.slice();
+  if (pickerPart !== 'all') qs = qs.filter(function(q){ return q.part === pickerPart; });
+  if (pickerType !== 'all_type') qs = qs.filter(function(q){ return q.type === pickerType; });
+  return qs;
 }
 
-function updatePickerCount() {
-  let qs = QUIZ_DATA;
-  if (pickerPart !== 'all') qs = qs.filter(q => q.part === pickerPart);
-  if (pickerType !== 'all_type') qs = qs.filter(q => q.type === pickerType);
-  const el = document.getElementById('quiz-count-preview');
-  if (el) el.textContent = `${qs.length}문항`;
-}
-
-// ══════════════════════════════════════════════════════
-//  QUIZ MODE
-// ══════════════════════════════════════════════════════
+// ════════════════════════════════════════════
+//  QUIZ PLAY
+// ════════════════════════════════════════════
 function startQuiz() {
-  let qs = [...QUIZ_DATA];
-  if (pickerPart !== 'all') qs = qs.filter(q => q.part === pickerPart);
-  if (pickerType !== 'all_type') qs = qs.filter(q => q.type === pickerType);
+  var qs = filterQuizList();
   if (!qs.length) { alert('선택한 조건의 문제가 없습니다.'); return; }
-
-  // 셔플
-  for (let i = qs.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i+1));
-    [qs[i], qs[j]] = [qs[j], qs[i]];
+  for (var i = qs.length - 1; i > 0; i--) {
+    var j = Math.floor(Math.random() * (i + 1));
+    var tmp = qs[i]; qs[i] = qs[j]; qs[j] = tmp;
   }
-
-  quizState = { questions: qs, current: 0, answers: {}, score: 0, answered: false };
+  quizState = { qs: qs, idx: 0, answers: {}, score: 0 };
+  showOnly('quiz-screen');
   document.getElementById('quiz-header').style.display = '';
   document.getElementById('quiz-nav-btns').style.display = '';
   renderQuestion();
 }
 
 function renderQuestion() {
-  const { questions, current, answers } = quizState;
-  const q = questions[current];
-  const total = questions.length;
-  quizState.answered = answers[q.id] !== undefined;
+  var state = quizState;
+  var q = state.qs[state.idx];
+  var total = state.qs.length;
+  var alreadyAnswered = state.answers.hasOwnProperty(q.id);
 
-  // 헤더 업데이트
-  document.getElementById('quiz-meta').innerHTML = `
-    <div class="qm-left">${q.part}파트 · ${q.chapter} · ${typeLabel(q.type)}</div>
-    <div class="qm-score">문제 ${current+1} / ${total}</div>
-  `;
-  document.getElementById('quiz-prog-fill').style.width = ((current+1)/total*100) + '%';
+  // 헤더
+  var meta = document.getElementById('quiz-meta');
+  meta.innerHTML = '';
+  var left = document.createElement('div');
+  left.className = 'qm-left';
+  left.textContent = q.part + '파트 · ' + q.chapter + ' · ' + typeLabel(q.type);
+  var right = document.createElement('div');
+  right.className = 'qm-score';
+  right.textContent = '문제 ' + (state.idx + 1) + ' / ' + total;
+  meta.appendChild(left);
+  meta.appendChild(right);
+  document.getElementById('quiz-prog-fill').style.width = ((state.idx + 1) / total * 100) + '%';
 
-  // 퀴즈 내용
-  document.getElementById('quiz-content').innerHTML = `
-    <div class="page-enter">
-      <div class="quiz-num">Q${String(current+1).padStart(3,'0')} · ${q.id}번 문항</div>
-      <div class="quiz-q">${q.q}</div>
-      ${q.sub ? `<div class="quiz-sub">${q.sub}</div>` : ''}
-      ${renderQuizInput(q)}
-      <div class="explanation ${quizState.answered ? 'show' : ''}" id="exp-box">
-        ✅ ${q.exp || ''}
-        ${q.answer && typeof q.answer === 'string' ? `<div class="exp-code"><strong>정답:</strong> <code>${escHtml(q.answer)}</code></div>` : ''}
-      </div>
-    </div>
-  `;
+  // 본문
+  var qc = document.getElementById('quiz-content');
+  qc.innerHTML = '';
+  var wrap = document.createElement('div');
+  wrap.className = 'page-enter';
 
-  // 네비 버튼
-  document.getElementById('quiz-nav-btns').innerHTML = `
-    <button class="qnav-btn" onclick="prevQ()" ${current === 0 ? 'disabled' : ''}>← 이전</button>
-    <div style="font-family:var(--font-mono);font-size:12px;color:var(--text-muted)">
-      ${Object.keys(quizState.answers).length} / ${total} 완료
-    </div>
-    ${current < total - 1
-      ? `<button class="qnav-btn primary" onclick="nextQ()">다음 →</button>`
-      : `<button class="qnav-btn primary" onclick="showResult()">결과 보기</button>`}
-  `;
+  var numEl = document.createElement('div');
+  numEl.className = 'quiz-num';
+  numEl.textContent = 'Q' + String(state.idx + 1).padStart(3, '0') + ' · ' + q.id + '번';
+  wrap.appendChild(numEl);
 
-  document.getElementById('main').scrollTo(0,0);
+  var qEl = document.createElement('div');
+  qEl.className = 'quiz-q';
+  qEl.textContent = q.q;
+  wrap.appendChild(qEl);
 
-  // 이미 답한 문제 복원
-  if (quizState.answered) restoreAnswer(q);
-}
+  // 코드 힌트 (output/code)
+  if (q.code) {
+    var hc = document.createElement('div');
+    hc.className = 'hint-code';
+    var hpre = document.createElement('pre');
+    hpre.textContent = q.code;
+    hc.appendChild(hpre);
+    wrap.appendChild(hc);
+  }
 
-function typeLabel(t) {
-  return { mcq:'선택형', short:'단답형', code:'코드 작성', output:'결과 예측' }[t] || t;
-}
+  // 힌트 텍스트 (code)
+  if (q.type === 'code' && q.hint) {
+    var hintEl = document.createElement('div');
+    hintEl.className = 'hl hl-blue';
+    hintEl.style.marginBottom = '10px';
+    hintEl.textContent = '💡 힌트: ' + q.hint;
+    wrap.appendChild(hintEl);
+  }
 
-function renderQuizInput(q) {
+  // 입력부
   if (q.type === 'mcq') {
-    return `<div class="options-list">
-      ${q.options.map((opt, i) => `
-        <div class="opt" id="opt-${i}" onclick="answerMCQ(${i},${q.answer},${q.id})">
-          <span class="opt-letter">${'ABCD'[i]}</span>
-          <span>${escHtml(opt)}</span>
-        </div>`).join('')}
-    </div>`;
-  }
-  if (q.type === 'output') {
-    return `
-      ${q.code ? `<div class="hint-code"><pre>${escHtml(q.code)}</pre></div>` : ''}
-      <div class="output-wrap">
-        <input class="output-input" id="ans-input" type="text" placeholder="출력 결과를 입력하세요..." onkeydown="if(event.key==='Enter')submitShort(${q.id})">
-      </div>
-      <button class="submit-btn" onclick="submitShort(${q.id})">제출</button>`;
-  }
-  if (q.type === 'short') {
-    return `
-      <input class="short-input" id="ans-input" type="text" placeholder="답을 입력하세요..." onkeydown="if(event.key==='Enter')submitShort(${q.id})">
-      <button class="submit-btn" onclick="submitShort(${q.id})">제출</button>`;
-  }
-  if (q.type === 'code') {
-    return `
-      ${q.hint ? `<div class="hl hl-blue" style="margin-bottom:10px">💡 힌트: ${escHtml(q.hint)}</div>` : ''}
-      <textarea class="code-input" id="ans-input" placeholder="여기에 코드를 작성하세요..." spellcheck="false"></textarea>
-      <button class="submit-btn" onclick="submitCode(${q.id})">코드 확인</button>`;
-  }
-  return '';
-}
+    var list = document.createElement('div');
+    list.className = 'options-list';
+    q.options.forEach(function(opt, i) {
+      var el = document.createElement('div');
+      el.className = 'opt';
+      el.id = 'opt-' + i;
+      var letter = document.createElement('span');
+      letter.className = 'opt-letter';
+      letter.textContent = 'ABCDE'[i];
+      var text = document.createElement('span');
+      text.textContent = opt;
+      el.appendChild(letter);
+      el.appendChild(text);
+      if (!alreadyAnswered) {
+        el.addEventListener('click', function() { answerMCQ(i, q.answer, q.id); });
+      } else {
+        el.style.pointerEvents = 'none';
+      }
+      list.appendChild(el);
+    });
+    wrap.appendChild(list);
 
-// ── MCQ 답변 ─────────────────────────────────────────
-function answerMCQ(chosen, correct, qid) {
-  if (quizState.answers[qid] !== undefined) return;
-  quizState.answers[qid] = chosen;
-  quizState.answered = true;
+  } else if (q.type === 'output') {
+    var owrap = document.createElement('div');
+    owrap.className = 'output-wrap';
+    var oinp = document.createElement('input');
+    oinp.className = 'output-input';
+    oinp.id = 'ans-input';
+    oinp.type = 'text';
+    oinp.placeholder = '출력 결과를 입력하세요...';
+    oinp.disabled = alreadyAnswered;
+    oinp.addEventListener('keydown', function(e) { if (e.key === 'Enter') submitShort(q.id); });
+    owrap.appendChild(oinp);
+    wrap.appendChild(owrap);
+    if (!alreadyAnswered) {
+      var sbtn = document.createElement('button');
+      sbtn.className = 'submit-btn';
+      sbtn.textContent = '제출';
+      sbtn.addEventListener('click', function() { submitShort(q.id); });
+      wrap.appendChild(sbtn);
+    }
 
-  const isRight = chosen === correct;
-  if (isRight) quizState.score++;
+  } else if (q.type === 'short') {
+    var sinp = document.createElement('input');
+    sinp.className = 'short-input';
+    sinp.id = 'ans-input';
+    sinp.type = 'text';
+    sinp.placeholder = '답을 입력하세요...';
+    sinp.disabled = alreadyAnswered;
+    sinp.addEventListener('keydown', function(e) { if (e.key === 'Enter') submitShort(q.id); });
+    wrap.appendChild(sinp);
+    if (!alreadyAnswered) {
+      var sbtn2 = document.createElement('button');
+      sbtn2.className = 'submit-btn';
+      sbtn2.textContent = '제출';
+      sbtn2.addEventListener('click', function() { submitShort(q.id); });
+      wrap.appendChild(sbtn2);
+    }
 
-  document.querySelectorAll('.opt').forEach((el, i) => {
-    if (i === correct) el.classList.add('correct');
-    else if (i === chosen && !isRight) el.classList.add('wrong');
-    el.style.pointerEvents = 'none';
-  });
-
-  document.getElementById('exp-box').classList.add('show');
-}
-
-// ── 단답/결과 제출 ───────────────────────────────────
-function submitShort(qid) {
-  if (quizState.answers[qid] !== undefined) return;
-  const inp = document.getElementById('ans-input');
-  if (!inp || !inp.value.trim()) return;
-  quizState.answers[qid] = inp.value.trim();
-  quizState.answered = true;
-  quizState.score++;   // 단답은 자가 채점
-  inp.classList.add('correct-input');
-  inp.disabled = true;
-  document.getElementById('exp-box').classList.add('show');
-}
-
-// ── 코드 제출 ─────────────────────────────────────────
-function submitCode(qid) {
-  if (quizState.answers[qid] !== undefined) return;
-  const inp = document.getElementById('ans-input');
-  if (!inp || !inp.value.trim()) return;
-  const code = inp.value.trim();
-  quizState.answers[qid] = code;
-  quizState.answered = true;
-
-  const q = QUIZ_DATA.find(q => q.id === qid);
-  // 키워드 기반 체크
-  const keywords = q.keywords || [];
-  const allPresent = keywords.every(k => code.toLowerCase().includes(k.toLowerCase()));
-  if (allPresent) quizState.score++;
-
-  inp.disabled = true;
-  document.getElementById('exp-box').classList.add('show');
-
-  // 키워드 피드백
-  if (keywords.length > 0) {
-    const missing = keywords.filter(k => !code.toLowerCase().includes(k.toLowerCase()));
-    if (missing.length > 0) {
-      const fb = document.createElement('div');
-      fb.className = 'hl hl-yellow';
-      fb.style.marginTop = '10px';
-      fb.innerHTML = `⚠️ 누락된 키워드: <code>${missing.join(', ')}</code>`;
-      document.getElementById('exp-box').appendChild(fb);
-    } else {
-      const fb = document.createElement('div');
-      fb.className = 'hl hl-green';
-      fb.style.marginTop = '10px';
-      fb.textContent = '✅ 모든 핵심 키워드 포함!';
-      document.getElementById('exp-box').appendChild(fb);
+  } else if (q.type === 'code') {
+    var ta = document.createElement('textarea');
+    ta.className = 'code-input';
+    ta.id = 'ans-input';
+    ta.placeholder = '여기에 코드를 작성하세요...';
+    ta.spellcheck = false;
+    ta.disabled = alreadyAnswered;
+    wrap.appendChild(ta);
+    if (!alreadyAnswered) {
+      var cbtn = document.createElement('button');
+      cbtn.className = 'submit-btn';
+      cbtn.textContent = '코드 확인';
+      cbtn.addEventListener('click', function() { submitCode(q.id); });
+      wrap.appendChild(cbtn);
     }
   }
-  // 모범 답안 표시
-  if (q.answer) {
-    const ans = document.createElement('div');
-    ans.className = 'hint-code';
-    ans.style.marginTop = '10px';
-    ans.innerHTML = `<div style="padding:8px 14px;font-size:11px;color:var(--text-dim);font-family:var(--font-mono);border-bottom:1px solid var(--border)">모범 답안</div><pre>${escHtml(q.answer)}</pre>`;
-    document.getElementById('exp-box').appendChild(ans);
+
+  // 해설
+  var exp = document.createElement('div');
+  exp.className = 'explanation' + (alreadyAnswered ? ' show' : '');
+  exp.id = 'exp-box';
+  exp.textContent = '✅ ' + (q.exp || '');
+  wrap.appendChild(exp);
+
+  qc.appendChild(wrap);
+
+  // 네비 버튼
+  var nb = document.getElementById('quiz-nav-btns');
+  nb.innerHTML = '';
+
+  var prevBtn = document.createElement('button');
+  prevBtn.className = 'qnav-btn';
+  prevBtn.textContent = '← 이전';
+  if (state.idx === 0) prevBtn.disabled = true;
+  prevBtn.addEventListener('click', prevQ);
+  nb.appendChild(prevBtn);
+
+  var centerInfo = document.createElement('div');
+  centerInfo.style.cssText = 'font-family:var(--font-mono);font-size:12px;color:var(--text-muted)';
+  centerInfo.textContent = Object.keys(state.answers).length + ' / ' + total + ' 완료';
+  nb.appendChild(centerInfo);
+
+  if (state.idx < total - 1) {
+    var nxtBtn = document.createElement('button');
+    nxtBtn.className = 'qnav-btn primary';
+    nxtBtn.textContent = '다음 →';
+    nxtBtn.addEventListener('click', nextQ);
+    nb.appendChild(nxtBtn);
+  } else {
+    var resBtn = document.createElement('button');
+    resBtn.className = 'qnav-btn primary';
+    resBtn.textContent = '결과 보기';
+    resBtn.addEventListener('click', showResult);
+    nb.appendChild(resBtn);
+  }
+
+  document.getElementById('main').scrollTo(0, 0);
+
+  if (alreadyAnswered) restoreAnswer(q);
+}
+
+// ── MCQ
+function answerMCQ(chosen, correct, qid) {
+  if (quizState.answers.hasOwnProperty(qid)) return;
+  quizState.answers[qid] = chosen;
+  var isRight = chosen === correct;
+  if (isRight) quizState.score++;
+  document.querySelectorAll('.opt').forEach(function(el, i) {
+    el.style.pointerEvents = 'none';
+    if (i === correct) el.classList.add('correct');
+    else if (i === chosen && !isRight) el.classList.add('wrong');
+  });
+  var exp = document.getElementById('exp-box');
+  if (exp) exp.classList.add('show');
+}
+
+// ── 단답/결과
+function submitShort(qid) {
+  if (quizState.answers.hasOwnProperty(qid)) return;
+  var inp = document.getElementById('ans-input');
+  if (!inp || !inp.value.trim()) return;
+  var val = inp.value.trim();
+  quizState.answers[qid] = val;
+  quizState.score++;
+  inp.disabled = true;
+  inp.classList.add('correct-input');
+  var exp = document.getElementById('exp-box');
+  if (exp) {
+    var q = QUIZ_DATA.find(function(x){ return x.id === qid; });
+    if (q && q.answer) {
+      var ansEl = document.createElement('div');
+      ansEl.className = 'exp-code';
+      ansEl.style.marginTop = '10px';
+      var strong = document.createElement('strong');
+      strong.textContent = '정답: ';
+      var code = document.createElement('code');
+      code.textContent = q.answer;
+      ansEl.appendChild(strong);
+      ansEl.appendChild(code);
+      exp.appendChild(ansEl);
+    }
+    exp.classList.add('show');
   }
 }
 
-// ── 답안 복원 ─────────────────────────────────────────
+// ── 코드
+function submitCode(qid) {
+  if (quizState.answers.hasOwnProperty(qid)) return;
+  var inp = document.getElementById('ans-input');
+  if (!inp || !inp.value.trim()) return;
+  var code = inp.value.trim();
+  quizState.answers[qid] = code;
+  inp.disabled = true;
+  var q = QUIZ_DATA.find(function(x){ return x.id === qid; });
+  var keywords = q.keywords || [];
+  var allOk = keywords.every(function(k){ return code.toLowerCase().includes(k.toLowerCase()); });
+  if (allOk) quizState.score++;
+  var exp = document.getElementById('exp-box');
+  if (exp) {
+    exp.classList.add('show');
+    if (keywords.length) {
+      var missing = keywords.filter(function(k){ return !code.toLowerCase().includes(k.toLowerCase()); });
+      var fb = document.createElement('div');
+      fb.style.marginTop = '10px';
+      if (missing.length) {
+        fb.className = 'hl hl-yellow';
+        fb.textContent = '⚠️ 누락된 키워드: ' + missing.join(', ');
+      } else {
+        fb.className = 'hl hl-green';
+        fb.textContent = '✅ 모든 핵심 키워드 포함!';
+      }
+      exp.appendChild(fb);
+    }
+    if (q.answer) {
+      var aBox = document.createElement('div');
+      aBox.className = 'hint-code';
+      aBox.style.marginTop = '10px';
+      var aLabel = document.createElement('div');
+      aLabel.style.cssText = 'padding:8px 14px;font-size:11px;color:var(--text-dim);font-family:var(--font-mono);border-bottom:1px solid var(--border)';
+      aLabel.textContent = '모범 답안';
+      var aPre = document.createElement('pre');
+      aPre.textContent = q.answer;
+      aBox.appendChild(aLabel);
+      aBox.appendChild(aPre);
+      exp.appendChild(aBox);
+    }
+  }
+}
+
+// ── 답안 복원
 function restoreAnswer(q) {
-  const saved = quizState.answers[q.id];
+  var saved = quizState.answers[q.id];
   if (q.type === 'mcq') {
-    document.querySelectorAll('.opt').forEach((el, i) => {
+    document.querySelectorAll('.opt').forEach(function(el, i) {
+      el.style.pointerEvents = 'none';
       if (i === q.answer) el.classList.add('correct');
       else if (i === saved && i !== q.answer) el.classList.add('wrong');
-      el.style.pointerEvents = 'none';
     });
+  } else {
+    var inp = document.getElementById('ans-input');
+    if (inp && saved !== undefined) { inp.value = saved; inp.disabled = true; }
   }
-  if (['short','output','code'].includes(q.type)) {
-    const inp = document.getElementById('ans-input');
-    if (inp) { inp.value = saved; inp.disabled = true; }
-  }
+  var exp = document.getElementById('exp-box');
+  if (exp) exp.classList.add('show');
 }
 
-// ── 이전/다음 ─────────────────────────────────────────
-function prevQ() {
-  if (quizState.current > 0) {
-    quizState.current--;
-    renderQuestion();
-  }
-}
+function prevQ() { if (quizState.idx > 0) { quizState.idx--; renderQuestion(); } }
+function nextQ() { if (quizState.idx < quizState.qs.length - 1) { quizState.idx++; renderQuestion(); } }
 
-function nextQ() {
-  if (quizState.current < quizState.questions.length - 1) {
-    quizState.current++;
-    renderQuestion();
-  }
-}
-
-// ══════════════════════════════════════════════════════
+// ════════════════════════════════════════════
 //  RESULT
-// ══════════════════════════════════════════════════════
+// ════════════════════════════════════════════
 function showResult() {
-  const { questions, answers, score } = quizState;
-  const total = questions.length;
-  const answered = Object.keys(answers).length;
-  const pct = Math.round(score / total * 100);
+  var state = quizState;
+  var total = state.qs.length;
+  var answered = Object.keys(state.answers).length;
+  var pct = total ? Math.round(state.score / total * 100) : 0;
+  var grade = pct >= 90 ? '🏆 완벽해요!' : pct >= 70 ? '👏 잘했어요!' : pct >= 50 ? '📚 조금 더!' : '😅 다시 도전!';
 
-  let grade = '😅 다시 도전!';
-  if (pct >= 90) grade = '🏆 완벽해요!';
-  else if (pct >= 70) grade = '👏 잘했어요!';
-  else if (pct >= 50) grade = '📚 조금 더!';
-
-  const typeBreakdown = ['mcq','short','code','output'].map(t => {
-    const tqs = questions.filter(q => q.type === t);
-    const tAns = tqs.filter(q => answers[q.id] !== undefined).length;
-    return { type:typeLabel(t), total:tqs.length, ans:tAns };
-  }).filter(t => t.total > 0);
-
-  showScreen('result-screen');
+  showOnly('result-screen');
   document.getElementById('quiz-header').style.display = 'none';
   document.getElementById('quiz-nav-btns').style.display = 'none';
 
-  document.getElementById('result-content').innerHTML = `
-    <div class="page-enter">
-      <div class="result-score">${pct}%</div>
-      <div class="result-label">${grade}</div>
+  var rc = document.getElementById('result-content');
+  rc.innerHTML = '';
+  var wrap = document.createElement('div');
+  wrap.className = 'page-enter';
 
-      <div class="result-breakdown">
-        <div class="rb-card">
-          <div class="rb-num">${score}</div>
-          <div class="rb-label">정답</div>
-        </div>
-        <div class="rb-card">
-          <div class="rb-num">${total - score}</div>
-          <div class="rb-label">오답</div>
-        </div>
-        <div class="rb-card">
-          <div class="rb-num">${total - answered}</div>
-          <div class="rb-label">미응답</div>
-        </div>
-      </div>
+  var scoreEl = document.createElement('div');
+  scoreEl.className = 'result-score';
+  scoreEl.textContent = pct + '%';
+  wrap.appendChild(scoreEl);
 
-      <div style="margin:24px 0">
-        ${typeBreakdown.map(t => `
-          <div style="display:flex;justify-content:space-between;margin-bottom:10px;font-size:13px">
-            <span style="color:var(--text-muted)">${t.type}</span>
-            <span style="font-family:var(--font-mono);color:var(--text)">${t.ans}/${t.total}</span>
-          </div>
-          <div style="height:4px;background:var(--surface3);border-radius:999px;margin-bottom:14px;overflow:hidden">
-            <div style="height:100%;width:${t.total?Math.round(t.ans/t.total*100):0}%;background:var(--accent2);border-radius:999px"></div>
-          </div>
-        `).join('')}
-      </div>
+  var gradeEl = document.createElement('div');
+  gradeEl.className = 'result-label';
+  gradeEl.textContent = grade;
+  wrap.appendChild(gradeEl);
 
-      <div class="result-btns">
-        <button class="primary" onclick="startQuiz()">다시 풀기</button>
-        <button onclick="showQuizPicker()">다른 퀴즈 선택</button>
-        <button onclick="if(currentChapter){currentMode='study';document.getElementById('btn-study').classList.add('active');document.getElementById('btn-quiz').classList.remove('active');renderStudyScreen(currentChapter.id);}else{currentMode='study';showHero();}">공부로 돌아가기</button>
-      </div>
-    </div>
-  `;
-}
-
-// ══════════════════════════════════════════════════════
-//  UTILITIES
-// ══════════════════════════════════════════════════════
-function copyCode(btn) {
-  const pre = btn.closest('.code-block')?.querySelector('pre');
-  if (!pre) return;
-  navigator.clipboard.writeText(pre.innerText).then(() => {
-    btn.textContent = 'copied!';
-    setTimeout(() => btn.textContent = 'copy', 2000);
+  var bd = document.createElement('div');
+  bd.className = 'result-breakdown';
+  [{n:state.score,l:'정답'},{n:total-state.score,l:'오답'},{n:total-answered,l:'미응답'}].forEach(function(item) {
+    var card = document.createElement('div');
+    card.className = 'rb-card';
+    var num = document.createElement('div'); num.className='rb-num'; num.textContent=item.n;
+    var lbl = document.createElement('div'); lbl.className='rb-label'; lbl.textContent=item.l;
+    card.appendChild(num); card.appendChild(lbl);
+    bd.appendChild(card);
   });
+  wrap.appendChild(bd);
+
+  ['mcq','short','code','output'].forEach(function(t) {
+    var tqs = state.qs.filter(function(q){ return q.type === t; });
+    if (!tqs.length) return;
+    var tAns = tqs.filter(function(q){ return state.answers.hasOwnProperty(q.id); }).length;
+    var pctT = Math.round(tAns / tqs.length * 100);
+    var row = document.createElement('div');
+    row.style.cssText = 'display:flex;justify-content:space-between;margin-bottom:8px;font-size:13px';
+    var l = document.createElement('span'); l.style.color='var(--text-muted)'; l.textContent=typeLabel(t);
+    var r = document.createElement('span'); r.style.cssText='font-family:var(--font-mono)'; r.textContent=tAns+'/'+tqs.length;
+    row.appendChild(l); row.appendChild(r);
+    wrap.appendChild(row);
+    var bw = document.createElement('div');
+    bw.style.cssText='height:4px;background:var(--surface3);border-radius:999px;margin-bottom:14px;overflow:hidden';
+    var bar = document.createElement('div');
+    bar.style.cssText='height:100%;width:'+pctT+'%;background:var(--accent2);border-radius:999px';
+    bw.appendChild(bar); wrap.appendChild(bw);
+  });
+
+  var btns = document.createElement('div');
+  btns.className = 'result-btns';
+  var r1 = document.createElement('button'); r1.className='primary'; r1.textContent='다시 풀기'; r1.addEventListener('click', startQuiz);
+  var r2 = document.createElement('button'); r2.textContent='다른 퀴즈 선택'; r2.addEventListener('click', openQuizPicker);
+  var r3 = document.createElement('button'); r3.textContent='공부로 돌아가기';
+  r3.addEventListener('click', function() {
+    if (currentChapterId) goChapter(currentChapterId);
+    else { currentMode='study'; document.getElementById('btn-study').classList.add('active'); document.getElementById('btn-quiz').classList.remove('active'); showOnly('hero-screen'); }
+  });
+  btns.appendChild(r1); btns.appendChild(r2); btns.appendChild(r3);
+  wrap.appendChild(btns);
+  rc.appendChild(wrap);
 }
 
-function escHtml(str) {
-  if (!str) return '';
-  return String(str)
-    .replace(/&/g,'&amp;')
-    .replace(/</g,'&lt;')
-    .replace(/>/g,'&gt;')
-    .replace(/"/g,'&quot;');
+// ════════════════════════════════════════════
+//  UTILS
+// ════════════════════════════════════════════
+function typeLabel(t) {
+  return {mcq:'선택형',short:'단답형',code:'코드 작성',output:'결과 예측'}[t] || t;
+}
+
+function copyCode(btn) {
+  var pre = btn.closest('.code-block') && btn.closest('.code-block').querySelector('pre');
+  if (!pre) return;
+  navigator.clipboard.writeText(pre.innerText).then(function() {
+    btn.textContent = 'copied!';
+    setTimeout(function(){ btn.textContent = 'copy'; }, 2000);
+  });
 }
