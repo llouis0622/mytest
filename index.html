@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Louis · AI 완전 정복 Lab</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+KR:wght@300;400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<!-- ── SIDEBAR ── -->
+<aside id="sidebar">
+  <div class="sb-top">
+    <div class="sb-logo">
+      <span class="logo-mark">◈</span>
+      <div>
+        <div class="logo-title">AI Lab</div>
+        <div class="logo-sub">louis · 취업 대비 완전 정복</div>
+      </div>
+    </div>
+    <input id="search" type="text" placeholder="챕터 검색..." oninput="filterNav(this.value)">
+    <div class="progress-wrap">
+      <div class="prog-row"><span>전체 진행률</span><span id="prog-label">0%</span></div>
+      <div class="prog-bar"><div id="prog-fill"></div></div>
+    </div>
+  </div>
+
+  <nav id="nav-list">
+    <!-- JS로 동적 생성 -->
+  </nav>
+
+  <div class="sb-bottom">
+    <button class="mode-btn active" id="btn-study" onclick="setMode('study')">📖 공부</button>
+    <button class="mode-btn" id="btn-quiz" onclick="setMode('quiz')">📝 문제</button>
+  </div>
+</aside>
+
+<!-- ── MOBILE TOGGLE ── -->
+<button class="hamburger" onclick="toggleSidebar()">☰</button>
+
+<!-- ── MAIN ── -->
+<main id="main">
+  <!-- HERO (첫 화면) -->
+  <section id="hero-screen">
+    <div class="hero-bg"></div>
+    <div class="hero-content">
+      <div class="hero-eyebrow">AI · ML · DL · LLM · RAG · Agentic</div>
+      <h1>AI 완전 정복<br><span>Study Lab</span></h1>
+      <p class="hero-desc">Python 기초부터 에이전틱 AI까지 — 이론·코드·퀴즈 150문항을 한 곳에서 완주하세요.</p>
+      <div class="hero-stats">
+        <div class="hs"><span class="hs-num">9</span><span class="hs-label">파트</span></div>
+        <div class="hs"><span class="hs-num">40+</span><span class="hs-label">챕터</span></div>
+        <div class="hs"><span class="hs-num">150</span><span class="hs-label">문항</span></div>
+        <div class="hs"><span class="hs-num">60+</span><span class="hs-label">코드 예제</span></div>
+      </div>
+      <button class="cta" onclick="startLearning()">시작하기 →</button>
+    </div>
+  </section>
+
+  <!-- STUDY SCREEN -->
+  <section id="study-screen" class="hidden">
+    <div id="study-content"></div>
+  </section>
+
+  <!-- QUIZ SCREEN -->
+  <section id="quiz-screen" class="hidden">
+    <div id="quiz-header">
+      <div id="quiz-meta"></div>
+      <div id="quiz-progress-bar"><div id="quiz-prog-fill"></div></div>
+    </div>
+    <div id="quiz-content"></div>
+    <div id="quiz-nav-btns"></div>
+  </section>
+
+  <!-- QUIZ RESULT -->
+  <section id="result-screen" class="hidden">
+    <div id="result-content"></div>
+  </section>
+</main>
+
+<script src="js/data-chapters.js"></script>
+<script src="js/data-quiz.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
